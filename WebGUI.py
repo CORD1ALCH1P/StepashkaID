@@ -37,9 +37,9 @@ def index():
 
 @app.route('/video_feed')
 def video_feed():
-    camera = TestCamera(config.streaming_source)
+    camera = TestCamera(config.Config.streaming_source)
     return Response(getnerate_frames(camera),
                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
-    app.run(debug=config.DEBUG, host=config.HOST, port=config.PORT)
+    app.run(debug=config.Config.DEBUG, host=config.Config.HOST, port=config.Config.PORT)

@@ -1,0 +1,5 @@
+.venv
+.env
+/known_faces
+.devcontainer
+__pycashe__

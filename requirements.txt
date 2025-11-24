@@ -1,3 +1,4 @@
 deepface
 opencv-python
 python-dotenv
+face_recognition
