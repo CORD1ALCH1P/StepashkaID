@@ -1,9 +1,9 @@
 from flask import Flask, Response, render_template
 import cv2
-from pandas.io.sas.sas_constants import subheader_count_length
-
 import config
 
+from config import Config
+setting = Config()
 app = Flask(__name__)
 
 class TestCamera:
@@ -42,4 +42,4 @@ def video_feed():
                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
-    app.run(debug=config.Config.DEBUG, host=config.Config.HOST, port=config.Config.PORT)
+    app.run(debug=setting.DEBUG, host=setting.HOST, port=setting.PORT)
