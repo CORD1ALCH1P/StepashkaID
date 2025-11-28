@@ -1,5 +1,5 @@
 .venv
 .env
-/known_faces
+/known_persons
 .devcontainer
 __pycashe__

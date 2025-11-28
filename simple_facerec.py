@@ -1,7 +1,6 @@
 import face_recognition
 import cv2
 import os
-import numpy as np
 
 
 class simple_facerec:

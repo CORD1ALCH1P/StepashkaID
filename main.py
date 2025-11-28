@@ -1,172 +1,83 @@
-import face_recognition
-from face_recognition import face_locations
-
-import WebGUI
-# import cv2
-# from config import *
-# import simple_facerec
-# from simple_facerec import simple_facerec
-#
-# # encode faces from a folder
-# sfr = simple_facerec()
-# sfr.load_encoding_images("./known_faces/test_person/")
-#
-#
-# # camera
-# cap = cv2.VideoCapture(config.streaming_source)
-#
-# while True:
-#     ret, frame = cap.read()
-#
-#     # detect faces
-#     face_locations, face_names = sfr.detect_known_faces(frame)
-#     for fac_loc, name in zip(face_locations, face_names):
-#         print(fac_loc)
-#
-#     cv2.imshow('frame',frame)
-#
-#     key = cv2.waitKey(1)
-#     if key == 27:
-#         break
-#
-# cap.release()
-# cv2.destroyAllWindows()
-
-# cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.streaming_width)
-# cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.streaming_height)
-# os.environ['QT_QPA_PLATFORM'] = 'offscreen'
-#
-# img = cv2.imread("./known_faces/test_person/1.jpg")
-# rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-# img_encoding = face_recognition.face_encodings(rgb_img)[0]
-#
-# img2 = cv2.imread("./known_faces/test_person/2.jpg")
-# rgb_img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2RGB)
-# img_encoding2 = face_recognition.face_encodings(rgb_img2)[0]
-#
-# result = face_recognition.compare_faces([img_encoding], img_encoding2)
-# print("Result: ", result)
-
-# cv2.imshow("Img", img)
-# cv2.waitKey(0)
-
-import config
-import face_recognition
-import cv2
-import numpy as np
 import os
-from config import Config
-setting = Config()
-import time
+import cv2
+import face_recognition
+import pickle
+import numpy as np
+import subprocess
+from datetime import datetime
 
 
-class SimpleFaceRec:
-    def __init__(self):
+class FaceRecognizer:
+    def __init__(self, known_dir="./known_persons", pkl_file="known_persons.pkl", train_script="train.py"):
+        self.known_dir = known_dir
+        self.pkl_file = pkl_file
+        self.train_script = train_script
+
         self.known_face_encodings = []
+        self.known_face_names = []
 
-    def load_encoding_images(self, images_path):
-        """Загрузка известных лиц"""
-        try:
-            for image_name in os.listdir(images_path):
-                if image_name.endswith(('.jpg', '.jpeg', '.png')):
-                    image_path = os.path.join(images_path, image_name)
-                    print(f"Загрузка {image_name}...")
+        self._load_or_train()
 
-                    img = face_recognition.load_image_file(image_path)
-                    encodings = face_recognition.face_encodings(img)
+    def _need_retrain(self):
+        if not os.path.exists(self.pkl_file):
+            return True
+        pkl_time = os.path.getmtime(self.pkl_file)
+        for root, _, files in os.walk(self.known_dir):
+            for f in files:
+                if f.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    if os.path.getmtime(os.path.join(root, f)) > pkl_time:
+                        return True
+        return False
 
-                    if encodings:
-                        self.known_face_encodings.append(encodings[0])
-                        print(f"  ✓ Лицо найдено и закодировано")
-                    else:
-                        print(f"  ✗ Лица не найдено на изображении")
+    def _load_or_train(self):
+        print("Загрузка базы известных лиц...", end=" ")
+        if self._need_retrain():
+            print("\nБаза устарела → переобучаю...")
+            result = subprocess.run(["python", self.train_script], capture_output=True, text=True)
+            if result.returncode != 0:
+                raise RuntimeError(f"Ошибка обучения:\n{result.stderr}")
+            print("Переобучение завершено")
 
-            print(f"Итог: Загружено {len(self.known_face_encodings)} известных лиц")
+        with open(self.pkl_file, "rb") as f:
+            data = pickle.load(f)
+            self.known_face_encodings = data["encodings"]
+            self.known_face_names = data["names"]
 
-        except Exception as e:
-            print(f"Ошибка при загрузке изображений: {e}")
+        print(f"Загружено {len(self.known_face_encodings)} encodings "
+              f"({len(set(self.known_face_names))} человек(а))")
 
-    def check_for_known_faces(self, frame):
-        """Проверяет, есть ли известные лица в кадре"""
-        try:
-            # Конвертируем BGR в RGB
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    def process_frame(self, frame):
+        """
+        Принимает BGR-кадр от OpenCV, возвращает тот же кадр с нарисованными рамками и именами
+        """
+        small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+        rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
 
-            # Сначала находим все лица в кадре
-            face_locations = face_recognition.face_locations(rgb_frame)
+        locations = face_recognition.face_locations(rgb, model="hog")
+        encodings = face_recognition.face_encodings(rgb, locations)
 
-            if not face_locations:
-                return False, 0  # Лица не обнаружены
+        for (top, right, bottom, left), enc in zip(locations, encodings):
+            top, right, bottom, left = top*2, right*2, bottom*2, left*2
 
-            # Получаем кодировки для найденных лиц
-            face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+            # Поиск совпадения
+            distances = face_recognition.face_distance(self.known_face_encodings, enc)
+            matches = face_recognition.compare_faces(self.known_face_encodings, enc, tolerance=0.5)
 
-            known_faces_count = 0
-            # Проверяем каждое найденное лицо
-            for face_encoding in face_encodings:
-                matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding)
-                if True in matches:
-                    known_faces_count += 1
+            name = "Неизвестный"
+            color = (0, 0, 255)
 
-            return known_faces_count > 0, len(face_locations)
+            if len(distances) > 0:
+                best_idx = np.argmin(distances)
+                if matches[best_idx]:
+                    name = self.known_face_names[best_idx]
+                    color = (0, 255, 0)
 
-        except Exception as e:
-            print(f"Ошибка при распознавании: {e}")
-            return False, 0
+            cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
+            cv2.putText(frame, name, (left, top - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
 
+        # Информация в углу
+        info = f"Людей: {len(locations)} | {datetime.now():%H:%M:%S}"
+        cv2.putText(frame, info, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-# Основной код
-def main():
-    sfr = SimpleFaceRec()
-
-    # Проверяем существование папки
-    if not os.path.exists("./known_faces/test_person/"):
-        print("Ошибка: Папка ./known_faces/test_person/ не существует!")
-        return
-
-    sfr.load_encoding_images("./known_faces/test_person/")
-
-    # Проверяем, есть ли загруженные лица
-    if len(sfr.known_face_encodings) == 0:
-        print("Предупреждение: Не загружено ни одного известного лица!")
-        print("Добавьте изображения в папку ./known_faces/test_person/")
-
-    cap = cv2.VideoCapture(0)
-
-    # Проверяем, открылась ли камера
-    if not cap.isOpened():
-        print("Ошибка: Не удалось открыть камеру!")
-        return
-
-    print("\nЗапуск проверки лиц...")
-    print("Нажмите Ctrl+C для выхода")
-    print("-" * 40)
-
-    try:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                print("Ошибка чтения кадра с камеры")
-                break
-
-            # Проверяем наличие известных лиц
-            known_face_detected, total_faces = sfr.check_for_known_faces(frame)
-
-            # Выводим результат
-            status = "TRUE" if known_face_detected else "FALSE"
-            print(f"Лиц в кадре: {total_faces} | Известное лицо: {status}")
-
-            # Задержка 1 секунда
-            time.sleep(1)
-
-    except KeyboardInterrupt:
-        print("\nОстановка...")
-    except Exception as e:
-        print(f"Неожиданная ошибка: {e}")
-    finally:
-        cap.release()
-        print("Камера освобождена")
-
-
-if __name__ == "__main__":
-    main()
+        return frame

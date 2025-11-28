@@ -1,4 +1,6 @@
+numpy
 deepface
-opencv-python
+opencv-python-headless
 python-dotenv
 face_recognition
+flask
